@@ -19,10 +19,13 @@ public class App
         //log the delay
         scheduler.scheduleWithFixedDelay(App::getState,500, 500, TimeUnit.MILLISECONDS);
 
+        //Test server functions
         scheduler.schedule(App::connect, 1, TimeUnit.SECONDS);
         scheduler.schedule(networkManager::disconnect, 5, TimeUnit.SECONDS);
         scheduler.schedule(App::connect, 7, TimeUnit.SECONDS);
         scheduler.scheduleAtFixedRate(networkManager::writeTest, 8, 1, TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(networkManager::keepAlive, 9, 1, TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(networkManager::readSocket, 10, 1, TimeUnit.SECONDS);
     }
 
     public static void getState(){
