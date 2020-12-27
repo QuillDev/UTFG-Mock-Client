@@ -19,10 +19,10 @@ public class App
         //log the delay
         scheduler.scheduleWithFixedDelay(App::getState,500, 500, TimeUnit.MILLISECONDS);
 
-        scheduler.schedule(App::connect2, 1, TimeUnit.SECONDS);
+        scheduler.schedule(App::connect, 1, TimeUnit.SECONDS);
         scheduler.schedule(networkManager::disconnect, 5, TimeUnit.SECONDS);
-        scheduler.schedule(App::connect, 10, TimeUnit.SECONDS);
-        scheduler.scheduleAtFixedRate(networkManager::writeTest, 12000, 1500, TimeUnit.MILLISECONDS);
+        scheduler.schedule(App::connect, 7, TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(networkManager::writeTest, 8, 1, TimeUnit.SECONDS);
     }
 
     public static void getState(){
@@ -33,11 +33,5 @@ public class App
     public static void connect(){
         System.out.println("Connecting");
         networkManager.connect("localhost", 2069);
-    }
-
-    //connect to the server
-    public static void connect2(){
-        System.out.println("Connecting");
-        networkManager.connect("localhost", 2090);
     }
 }
