@@ -17,7 +17,7 @@ public class App
         var scheduler = new ScheduledThreadPoolExecutor(1);
 
         //log the delay
-        scheduler.scheduleWithFixedDelay(App::getState,500, 500, TimeUnit.MILLISECONDS);
+        //scheduler.scheduleWithFixedDelay(App::getState,500, 500, TimeUnit.MILLISECONDS);
 
         //Test server functions
         scheduler.schedule(App::connect, 1, TimeUnit.SECONDS);
@@ -25,7 +25,8 @@ public class App
         scheduler.schedule(App::connect, 7, TimeUnit.SECONDS);
         scheduler.scheduleAtFixedRate(networkManager::writeTest, 8, 1, TimeUnit.SECONDS);
         scheduler.scheduleAtFixedRate(networkManager::keepAlive, 9, 1, TimeUnit.SECONDS);
-        scheduler.scheduleAtFixedRate(networkManager::readSocket, 10, 1, TimeUnit.SECONDS);
+        
+        networkManager.startListening();
     }
 
     public static void getState(){

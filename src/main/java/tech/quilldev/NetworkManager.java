@@ -3,6 +3,7 @@ package tech.quilldev;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketException;
 
 public class NetworkManager {
 
@@ -12,6 +13,10 @@ public class NetworkManager {
     // the connection state of the socket
     private ConnectionState connectionState;
 
+    //Time in seconds before timing out
+    private final int timeout = 10;
+    private long lastSuccess;
+
     // create the network manager
     public NetworkManager() {
 
@@ -20,6 +25,7 @@ public class NetworkManager {
 
         // create the socket
         this.clientSocket = null;
+        this.lastSuccess = getCurrentTimeSeconds();
     }
 
     /**
@@ -29,34 +35,37 @@ public class NetworkManager {
      */
     public void connect(String host, int port) {
 
-        new Thread(() -> {
-            // if we're anything but disconnected, return
-            if (!this.connectionState.equals(ConnectionState.DISCONNECTED)) {
-                return;
-            }
+        // if we're anything but disconnected, return
+        if (!this.connectionState.equals(ConnectionState.DISCONNECTED)) {
+            return;
+        }
 
-            try {
+        // set the socket state to connecting
+        this.connectionState = ConnectionState.CONNECTING;
 
-                // set the socket state to connecting
-                this.connectionState = ConnectionState.CONNECTING;
+        //print that we're connecting
+        System.out.println("CONNECTING");
 
-                // address to connect with
-                var address = new InetSocketAddress(host, port);
+        try {
+            // address to connect with
+            var address = new InetSocketAddress(host, port);
 
-                //close the current socket connection if there is one
-                this.closeSocket();
+            //close the current socket connection if there is one
+            this.closeSocket();
 
-                //try to connect to the new address
-                this.clientSocket.connect(address, 1000);
+            //try to connect to the new address
+            this.clientSocket.connect(address, timeout * 1000);
 
-                // if we connect set the connection state to connected
-                this.connectionState = ConnectionState.CONNECTED;
+            //set the last success to the current time
+            this.lastSuccess = getCurrentTimeSeconds();
 
-            } catch (IOException ignored) {
-                this.closeSocket();
-                this.connectionState = ConnectionState.DISCONNECTED;
-            }
-        }).start();
+            // if we connect set the connection state to connected
+            this.connectionState = ConnectionState.CONNECTED;
+
+        } catch (IOException ignored) {
+            this.closeSocket();
+            this.connectionState = ConnectionState.DISCONNECTED;
+        }
     }
 
     /**
@@ -77,11 +86,43 @@ public class NetworkManager {
             // get the output string to write to
             var stream = this.clientSocket.getOutputStream();
             stream.write(data.getBytes());
-            
-        } catch (IOException ignored) {
-            System.out.println("FAILED WRITE");
+            stream.flush();
+
+            //set the last success time to the current time
+            this.lastSuccess = getCurrentTimeSeconds();
+
+        } catch (SocketException socketException) {
+            this.reconnect();
+        } catch (IOException e) {
+            e.printStackTrace();
         }
 
+    }
+
+    /**
+     * Try to reconnect to the server
+     */
+    public void reconnect(){
+
+        //if the client socket is null, return
+        if(clientSocket == null || clientSocket.getInetAddress() == null){
+            return;
+        }
+
+        //get the host and port
+        var host = this.clientSocket.getInetAddress().getHostName();
+        var port = this.clientSocket.getPort();
+
+        //disconnect the current socket
+        this.disconnect();
+
+        //try to connect to the port we were connected to
+        this.connect(host, port);
+
+        //if we fail to connect, the connection timed out
+        if(!this.connectionState.equals(ConnectionState.CONNECTED)){
+            System.out.println("CONNECTION TIMED OUT");
+        }
     }
 
     /**
@@ -113,50 +154,71 @@ public class NetworkManager {
      * Send the keep alive packet
      */
     public void keepAlive(){
-        this.writeLine("{QP:KEEP_ALIVE}");
-    }
 
-    public void readSocket(){
         if(!connectionState.equals(ConnectionState.CONNECTED)){
             return;
         }
 
-        // if the socket is null, return
-        if(this.clientSocket == null){
-            return;
-        }
-        
-        try {
-            var stream = this.clientSocket.getInputStream();
+        //send the keep alive packet
+        this.writeLine("{QP:KEEP_ALIVE}");
+    }
 
-            var available = stream.available();
-
-            //if there are no bytes available, return
-            if(available == 0){
+    /**
+     * Read the socket
+     */
+    public void readSocket(){
+        new Thread( () -> {
+            // if the socket is null, return
+            if (clientSocket == null) {
                 return;
             }
 
-            //read all available bytes from the stream
-            var bytes = stream.readNBytes(available);
 
-            //byte string builder
-            var byteStringBuilder = new StringBuilder();
+            try {
+                var stream = this.clientSocket.getInputStream();
 
-            //convert all bytes to characters
-            for(var b : bytes){
-                byteStringBuilder.append((char) b);
+                var available = stream.available();
+
+                //if there are no bytes available, return
+                if (available == 0) {
+                    return;
+                }
+
+                //read all available bytes from the stream
+                var bytes = stream.readNBytes(available);
+
+                //byte string builder
+                var byteStringBuilder = new StringBuilder();
+
+                //convert all bytes to characters
+                for (var b : bytes) {
+                    byteStringBuilder.append((char) b);
+                }
+
+                //get the data string
+                var commands = byteStringBuilder.toString().split("\n");
+
+                //print all commands
+                for (var command : commands) {
+                    var packet = new Packet(command);
+
+                    //if the packet is malformed, skip it
+                    if(packet.isMalformed()){
+                        continue;
+                    }
+
+                    //print the packet
+                    System.out.println(packet);
+
+                }
             }
-
-            //get the data string
-            var dataString = byteStringBuilder.toString();
-
-            var commands = dataString.split("\n");
-
-            //print all commands
-            for(var command : commands){
-                System.out.println(command);
+            catch (SocketException ignored){
+                this.reconnect();
             }
-        }catch(IOException ignored){}
+            catch (IOException e) {
+                e.printStackTrace();
+            }
+        }).start();
     }
     /**
      * Disconnect the given socket from the server
@@ -169,15 +231,14 @@ public class NetworkManager {
         }
 
         try {
-            // write the end socket protocol
-            this.writeLineSync("{QP:ES}");
-
             //close the socket
             this.clientSocket.close();
 
             // setup the client socket as a fresh new socket
             this.clientSocket = new Socket();
             this.connectionState = ConnectionState.DISCONNECTED;
+
+            System.out.println("DISCONNECTED");
 
         } catch (IOException ignored) {
             System.out.println("Failed to close connection... somehow?");
@@ -187,7 +248,6 @@ public class NetworkManager {
 
     /**
      * Get the connection state
-     * 
      * @return the connection state
      */
     public ConnectionState getConnectionState() {
@@ -217,5 +277,30 @@ public class NetworkManager {
      */
     public void writeTest() {
         this.writeLine("test");
+    }
+
+    /**
+     * Start listening for incoming data
+     */
+    public void startListening() {
+
+        //Start listening on the socket
+        System.out.println("STARTED LISTENING TO SOCKET");
+
+        //start the new thread
+        new Thread(() -> {
+
+            while (true) {
+                this.readSocket();
+            }
+        }).start();
+    }
+
+    /**
+     * Get the current time in seconds
+     * @return the current time in seconds
+     */
+    public long getCurrentTimeSeconds(){
+        return System.currentTimeMillis() / 1000;
     }
 }
